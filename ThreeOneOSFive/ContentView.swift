@@ -206,8 +206,10 @@ private extension AppSection {
 private struct RoyalDashboardView: View {
     let installedContent: AnyView
     @State private var selectedCategory = "FF NORMAL"
-    @State private var showInstalled = false
+    @State private var matchingAssetFiles: [URL] = []
+    @State private var selectedAssetPath: String? = nil
     @State private var showSupport = false
+    @State private var showVIPTab = false
     private let red = Color(red: 1, green: 0.23, blue: 0.27)
     private let panel = Color(red: 0.065, green: 0.005, blue: 0.012)
     private let outline = Color(red: 0.33, green: 0.075, blue: 0.095)
@@ -222,10 +224,13 @@ private struct RoyalDashboardView: View {
             Color(red: 0.035, green: 0, blue: 0.007).ignoresSafeArea()
             ScrollView {
                 VStack(spacing: 22) {
+                    if showVIPTab {
+                        vipTab
+                    } else {
                     statusPanel
                     categoryPanel
                     launchPanel
-                    Button { showInstalled = true } label: {
+                    Button { showVIPTab = true } label: {
                         VStack(spacing: 6) {
                             Image(systemName: "flame.fill").font(.system(size: 32))
                             Text("HS VIPS").font(.system(size: 15, weight: .bold, design: .rounded))
@@ -236,26 +241,41 @@ private struct RoyalDashboardView: View {
                         .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 3))
                     }
                     .padding(.bottom, 30)
+                    }
                 }
                 .padding(.horizontal, 18)
                 .padding(.top, 20)
             }
         }
         .preferredColorScheme(.dark)
-        .sheet(isPresented: $showInstalled) {
-            NavigationStack {
-                installedContent
-                    .navigationTitle("Installed")
-                    .toolbar { ToolbarItem(placement: .topBarTrailing) {
-                        Button("Fechar") { showInstalled = false }
-                    }}
-            }
-        }
         .alert("Suporte", isPresented: $showSupport) {
             Button("OK", role: .cancel) { }
         } message: {
             Text("As informações de suporte não estão configuradas neste projeto.")
         }
+    }
+
+    // HS VIPS replaces the former Installed screen while retaining its tools and data.
+    private var vipTab: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Button { showVIPTab = false } label: {
+                Label("Voltar", systemImage: "chevron.left")
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundStyle(red)
+            }
+            .buttonStyle(.plain)
+
+            heading("flame.fill", "HS VIPS")
+
+            installedContent
+                .frame(maxWidth: .infinity, minHeight: 480)
+                .background(Color.black, in: RoundedRectangle(cornerRadius: 20))
+                .clipShape(RoundedRectangle(cornerRadius: 20))
+                .tint(red)
+        }
+        .padding(16)
+        .background(panel, in: RoundedRectangle(cornerRadius: 28))
+        .overlay(RoundedRectangle(cornerRadius: 28).stroke(outline, lineWidth: 1.2))
     }
 
     private var statusPanel: some View {
@@ -296,7 +316,7 @@ private struct RoyalDashboardView: View {
             heading("bolt.fill", "CATEGORIAS ONLINE")
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                 ForEach(categories, id: \.0) { item in
-                    Button { selectedCategory = item.0 } label: {
+                    Button { selectedCategory = item.0; if item.0 == "FF NORMAL" || item.0 == "FF MAX" { refreshAssetFiles() } } label: {
                         VStack(spacing: 14) {
                             Image(systemName: item.1).font(.system(size: 29, weight: .bold))
                             Text(item.0).font(.system(size: 10, weight: .heavy, design: .rounded))
@@ -309,11 +329,57 @@ private struct RoyalDashboardView: View {
                     }.buttonStyle(.plain)
                 }
             }
-            Text("Nenhum patch nesta categoria.")
-                .foregroundStyle(.gray).font(.system(size: 15))
-                .frame(maxWidth: .infinity).padding(.vertical, 36)
-            Button { showInstalled = true } label: {
-                Label("Abrir Installed", systemImage: "arrow.clockwise")
+            if selectedCategory == "FF NORMAL" || selectedCategory == "FF MAX" {
+                if matchingAssetFiles.isEmpty {
+                    Text("Nenhum arquivo \(selectedCategory == "FF MAX" ? "maassetindexer.YJ~2FW7EkU5pRkVg51NrKyx4LXid8~3D" : "assetindexer.U6Zffc4YIR3DslNj3cXvYGAqz58~3D") encontrado.")
+                        .foregroundStyle(.gray).font(.system(size: 13))
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity).padding(.vertical, 36)
+                } else {
+                    LazyVStack(spacing: 14) {
+                        ForEach(matchingAssetFiles, id: \.path) { file in
+                            Button {
+                                selectedAssetPath = selectedAssetPath == file.path ? nil : file.path
+                            } label: {
+                                HStack(spacing: 14) {
+                                    Image(systemName: "flame.fill")
+                                        .font(.system(size: 28, weight: .bold))
+                                        .foregroundStyle(red)
+                                        .frame(width: 62, height: 62)
+                                        .background(Color(red: 0.13, green: 0.015, blue: 0.025), in: RoundedRectangle(cornerRadius: 16))
+                                        .overlay(RoundedRectangle(cornerRadius: 16).stroke(outline, lineWidth: 1))
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        Text(file.lastPathComponent)
+                                            .font(.system(size: 15, weight: .heavy, design: .rounded))
+                                            .foregroundStyle(.white)
+                                            .lineLimit(2)
+                                            .multilineTextAlignment(.leading)
+                                        Text(selectedCategory)
+                                            .font(.system(size: 11, weight: .heavy, design: .rounded))
+                                            .tracking(2)
+                                            .foregroundStyle(red)
+                                    }
+                                    Spacer(minLength: 4)
+                                    Image(systemName: selectedAssetPath == file.path ? "checkmark.circle.fill" : "circle")
+                                        .font(.system(size: 29, weight: .medium))
+                                        .foregroundStyle(selectedAssetPath == file.path ? red : Color.gray.opacity(0.6))
+                                }
+                                .padding(16)
+                                .frame(maxWidth: .infinity, minHeight: 104)
+                                .background(Color.black, in: RoundedRectangle(cornerRadius: 24))
+                                .overlay(RoundedRectangle(cornerRadius: 24).stroke(outline.opacity(0.75), lineWidth: 1))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            } else {
+                Text("Nenhum patch nesta categoria.")
+                    .foregroundStyle(.gray).font(.system(size: 15))
+                    .frame(maxWidth: .infinity).padding(.vertical, 36)
+            }
+            Button { showVIPTab = true } label: {
+                Label("Abrir HS VIPS", systemImage: "arrow.clockwise")
                     .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(red).frame(maxWidth: .infinity)
             }
@@ -321,6 +387,32 @@ private struct RoyalDashboardView: View {
         .padding(20)
         .background(panel, in: RoundedRectangle(cornerRadius: 28))
         .overlay(RoundedRectangle(cornerRadius: 28).stroke(outline, lineWidth: 1.2))
+        .onAppear { refreshAssetFiles() }
+    }
+
+    // Only files within this app's accessible Documents folder can be listed.
+    private func refreshAssetFiles() {
+        let prefix = selectedCategory == "FF MAX"
+            ? "maassetindexer.YJ~2FW7EkU5pRkVg51NrKyx4LXid8~3D"
+            : "assetindexer.U6Zffc4YIR3DslNj3cXvYGAqz58~3D"
+        guard let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first,
+              let enumerator = FileManager.default.enumerator(at: documents,
+                  includingPropertiesForKeys: [.isRegularFileKey],
+                  options: [.skipsHiddenFiles]) else {
+            matchingAssetFiles = []
+            return
+        }
+        var found: [URL] = []
+        for case let url as URL in enumerator {
+            guard url.lastPathComponent.hasPrefix(prefix),
+                  (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { continue }
+            found.append(url)
+            if found.count >= 200 { break }
+        }
+        matchingAssetFiles = found.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        if let selectedAssetPath = selectedAssetPath, !matchingAssetFiles.contains(where: { $0.path == selectedAssetPath }) {
+            self.selectedAssetPath = nil
+        }
     }
 
     private var launchPanel: some View {
@@ -337,7 +429,7 @@ private struct RoyalDashboardView: View {
     }
 
     private func launchButton(_ title: String) -> some View {
-        Button { showInstalled = true } label: {
+        Button { showVIPTab = true } label: {
             Label(title, systemImage: "play.fill")
                 .font(.system(size: 14, weight: .heavy, design: .rounded))
                 .foregroundStyle(.white).frame(maxWidth: .infinity).frame(height: 76)
