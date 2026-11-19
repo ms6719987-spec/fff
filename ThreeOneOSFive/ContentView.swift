@@ -54,9 +54,6 @@ struct ContentView: View {
         .onChange(of: patchDraftCoordinator.request?.id) { requestID in
             if requestID != nil { tabNavigation.select(AppSection.installed.rawValue) }
         }
-        .onChange(of: patchDraftCoordinator.importRequest?.id) { requestID in
-            if requestID != nil { tabNavigation.select(AppSection.installed.rawValue) }
-        }
         .onChange(of: developerModeEnabled) { _ in
             tabNavigation.reconcileSelection(with: featureVisibility)
         }
@@ -277,27 +274,63 @@ private struct RoyalDashboardView: View {
         Button {
             selectedCategory = "HS VIPS"
         } label: {
-            HStack(spacing: 10) {
+            VStack(spacing: 5) {
                 Image(systemName: "flame.fill")
-                    .font(.system(size: 20, weight: .bold))
+                    .font(.system(size: 31, weight: .bold))
                 Text("HS VIPS")
-                    .font(.system(size: 15, weight: .heavy, design: .rounded))
-                    .tracking(1)
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .tracking(1.2)
             }
-            .foregroundStyle(selectedCategory == "HS VIPS" ? .white : red)
-            .frame(maxWidth: .infinity)
-            .frame(height: 56)
-            .background(selectedCategory == "HS VIPS" ? red : panel,
-                        in: RoundedRectangle(cornerRadius: 20))
-            .overlay(RoundedRectangle(cornerRadius: 20)
-                .stroke(outline, lineWidth: 1.3))
+            .foregroundStyle(Color(red: 1.0, green: 0.32, blue: 0.37))
+            .frame(width: 154, height: 90)
+            .background(Color(red: 0.23, green: 0.19, blue: 0.20),
+                        in: RoundedRectangle(cornerRadius: 45, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 45, style: .continuous)
+                    .stroke(Color(red: 0.35, green: 0.27, blue: 0.29), lineWidth: 2)
+            }
+            .shadow(color: .black.opacity(0.35), radius: 6, y: 3)
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, 72)
-        .padding(.top, 10)
-        .padding(.bottom, 6)
         .frame(maxWidth: .infinity)
-        .background(Color(red: 0.035, green: 0, blue: 0.007))
+        .padding(.top, 12)
+        .padding(.bottom, 10)
+        .background(Color.black.opacity(0.96))
+    }
+
+    private var iphoneModelName: String {
+        var systemInfo = utsname()
+        uname(&systemInfo)
+        let identifier = withUnsafePointer(to: &systemInfo.machine) {
+            $0.withMemoryRebound(to: CChar.self, capacity: MemoryLayout.size(ofValue: systemInfo.machine)) {
+                String(cString: $0)
+            }
+        }
+        let models: [String: String] = [
+            "iPhone10,1": "iPhone 8", "iPhone10,4": "iPhone 8",
+            "iPhone10,2": "iPhone 8 Plus", "iPhone10,5": "iPhone 8 Plus",
+            "iPhone10,3": "iPhone X", "iPhone10,6": "iPhone X",
+            "iPhone11,2": "iPhone XS", "iPhone11,4": "iPhone XS Max", "iPhone11,6": "iPhone XS Max", "iPhone11,8": "iPhone XR",
+            "iPhone12,1": "iPhone 11", "iPhone12,3": "iPhone 11 Pro", "iPhone12,5": "iPhone 11 Pro Max", "iPhone12,8": "iPhone SE (2ª geração)",
+            "iPhone13,1": "iPhone 12 mini", "iPhone13,2": "iPhone 12", "iPhone13,3": "iPhone 12 Pro", "iPhone13,4": "iPhone 12 Pro Max",
+            "iPhone14,2": "iPhone 13 Pro", "iPhone14,3": "iPhone 13 Pro Max", "iPhone14,4": "iPhone 13 mini", "iPhone14,5": "iPhone 13", "iPhone14,6": "iPhone SE (3ª geração)", "iPhone14,7": "iPhone 14", "iPhone14,8": "iPhone 14 Plus",
+            "iPhone15,2": "iPhone 14 Pro", "iPhone15,3": "iPhone 14 Pro Max", "iPhone15,4": "iPhone 15", "iPhone15,5": "iPhone 15 Plus",
+            "iPhone16,1": "iPhone 15 Pro", "iPhone16,2": "iPhone 15 Pro Max",
+            "iPhone17,1": "iPhone 16 Pro", "iPhone17,2": "iPhone 16 Pro Max", "iPhone17,3": "iPhone 16", "iPhone17,4": "iPhone 16 Plus", "iPhone17,5": "iPhone 16e",
+            "iPhone18,1": "iPhone 17 Pro", "iPhone18,2": "iPhone 17 Pro Max", "iPhone18,3": "iPhone 17", "iPhone18,4": "iPhone Air",
+            "i386": "iPhone (simulador)", "x86_64": "iPhone (simulador)", "arm64": "iPhone (simulador)"
+        ]
+        return models[identifier] ?? identifier
+    }
+
+    private var dispositivoSuportado: Bool {
+        let version = AppInfo.versionTuple
+        return ExploitSupportPolicy.isSupported(
+            major: version.major,
+            minor: version.minor,
+            patch: version.patch,
+            build: AppInfo.osBuild
+        )
     }
 
     private var statusPanel: some View {
@@ -307,9 +340,9 @@ private struct RoyalDashboardView: View {
                 Spacer()
                 Circle().fill(red).frame(width: 9, height: 9)
             }
-            statusRow("iphone.gen3", "Device", UIDevice.current.model, red)
+            statusRow("iphone.gen3", "Device", iphoneModelName, red)
             Button { showSupport = true } label: {
-                statusRow("checkmark.seal.fill", "Support", "SUPPORTED", .green)
+                statusRow("checkmark.seal.fill", "Suporte", dispositivoSuportado ? "SUPORTADO" : "NÃO SUPORTADO", dispositivoSuportado ? .green : .red)
             }.buttonStyle(.plain)
             statusRow("lock.shield.fill", "Licença", "Não configurada", .yellow)
         }
@@ -429,7 +462,7 @@ private struct RoyalDashboardView: View {
                 return
             }
             patchStore.importPackage(at: sourceURL)
-            activationMessage = "Importação iniciada. Após a validação, selecione o patch na biblioteca para aplicá-lo. Arquivos inválidos ou protegidos por senha precisam ser corrigidos ou desbloqueados."
+            activationMessage = "Importação iniciada nesta tela. Após a validação, o arquivo aparecerá na lista e poderá ser ativado aqui, sem trocar de aba."
             showActivationMessage = true
             return
         }
