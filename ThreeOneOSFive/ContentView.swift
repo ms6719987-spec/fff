@@ -215,14 +215,16 @@ private struct RoyalDashboardView: View {
         let prefix = selectedCategory == "FF MAX"
             ? "maassetindexer.YJ~2FW7EkU5pRkVg51NrKyx4LXid8~3D"
             : "assetindexer.U6Zffc4YIR3DslNj3cXvYGAqz58~3D"
-        let documents = matchingAssetFiles.map { ListedFile(id: $0.path, name: $0.lastPathComponent) }
-        let installed = patchStore.items.flatMap { item -> [ListedFile] in
-            guard let project = item.project, item.canInspectContents else { return [] }
-            return project.rules.enumerated().compactMap { index, rule in
-                let name = rule.replacementFilename
-                guard rule.relativePath.split(separator: "/").dropLast().contains(where: { $0.hasPrefix(prefix) }) else { return nil }
-                return ListedFile(id: "\(item.id)-\(index)", name: name)
-            }
+        // Show .3105 packages, not arbitrary asset files. Classify installed
+        // projects by their declared target directory rather than package name.
+        let documents = matchingAssetFiles.map { ListedFile(id: $0.path, name: $0.deletingPathExtension().lastPathComponent) }
+        let installed = patchStore.items.compactMap { item -> ListedFile? in
+            guard let project = item.project, item.canInspectContents else { return nil }
+            let paths = project.rules.map(\.relativePath) + project.directories.map(\.relativePath)
+            guard paths.contains(where: { path in
+                path.split(separator: "/").contains(where: { $0.hasPrefix(prefix) })
+            }) else { return nil }
+            return ListedFile(id: "project-\(item.id)", name: project.name)
         }
         var seen = Set<String>()
         return (documents + installed).filter { seen.insert($0.id).inserted }
@@ -313,7 +315,7 @@ private struct RoyalDashboardView: View {
             }
             if selectedCategory == "FF NORMAL" || selectedCategory == "FF MAX" {
                 if listedFiles.isEmpty {
-                    Text("Nenhum arquivo encontrado no diretório \(selectedCategory == "FF MAX" ? "maassetindexer.YJ~2FW7EkU5pRkVg51NrKyx4LXid8~3D" : "assetindexer.U6Zffc4YIR3DslNj3cXvYGAqz58~3D").")
+                    Text("Nenhum pacote .3105 encontrado para \(selectedCategory). Importe um patch .3105 com um caminho de destino compatível ou adicione-o à pasta correspondente no app Arquivos.")
                         .foregroundStyle(.gray).font(.system(size: 13))
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity).padding(.vertical, 36)
@@ -382,7 +384,8 @@ private struct RoyalDashboardView: View {
         }
         var found: [URL] = []
         for case let url as URL in enumerator {
-            guard url.deletingLastPathComponent().pathComponents.contains(where: { $0.hasPrefix(prefix) }),
+            guard url.pathExtension.lowercased() == "3105",
+                  url.deletingLastPathComponent().pathComponents.contains(where: { $0.hasPrefix(prefix) }),
                   (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { continue }
             found.append(url)
             if found.count >= 200 { break }
