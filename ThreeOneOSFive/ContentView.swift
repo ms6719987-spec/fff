@@ -243,9 +243,7 @@ private struct RoyalDashboardView: View {
     private let outline = Color(red: 0.33, green: 0.075, blue: 0.095)
     private let categories: [(String, String)] = [
         ("FF NORMAL", "flame.fill"), ("FF MAX", "flame"),
-        ("AP", "shield.lefthalf.filled"), ("SKINS / TEXTURAS", "square.grid.2x2.fill"),
-        ("HOLOGRAMAS", "wand.and.stars"), ("OUTROS", "shippingbox.fill"),
-        ("HS VIPS", "star.fill")
+        ("AP", "shield.lefthalf.filled")
     ]
 
     var body: some View {
@@ -261,6 +259,7 @@ private struct RoyalDashboardView: View {
                 .padding(.top, 20)
             }
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) { hsVipsBottomButton }
         .preferredColorScheme(.dark)
         .alert("Ativação do arquivo", isPresented: $showActivationMessage) {
             Button("OK", role: .cancel) { }
@@ -272,6 +271,33 @@ private struct RoyalDashboardView: View {
         } message: {
             Text("As informações de suporte não estão configuradas neste projeto.")
         }
+    }
+
+    private var hsVipsBottomButton: some View {
+        Button {
+            selectedCategory = "HS VIPS"
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "flame.fill")
+                    .font(.system(size: 20, weight: .bold))
+                Text("HS VIPS")
+                    .font(.system(size: 15, weight: .heavy, design: .rounded))
+                    .tracking(1)
+            }
+            .foregroundStyle(selectedCategory == "HS VIPS" ? .white : red)
+            .frame(maxWidth: .infinity)
+            .frame(height: 56)
+            .background(selectedCategory == "HS VIPS" ? red : panel,
+                        in: RoundedRectangle(cornerRadius: 20))
+            .overlay(RoundedRectangle(cornerRadius: 20)
+                .stroke(outline, lineWidth: 1.3))
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 72)
+        .padding(.top, 10)
+        .padding(.bottom, 6)
+        .frame(maxWidth: .infinity)
+        .background(Color(red: 0.035, green: 0, blue: 0.007))
     }
 
     private var statusPanel: some View {
@@ -332,36 +358,37 @@ private struct RoyalDashboardView: View {
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity).padding(.vertical, 36)
                 } else {
-                    LazyVStack(spacing: 14) {
+                    LazyVStack(spacing: 8) {
                         ForEach(listedFiles) { file in
                             Button {
                                 activateListedFile(file)
                             } label: {
-                                HStack(spacing: 14) {
+                                HStack(spacing: 9) {
                                     Image(systemName: "flame.fill")
-                                        .font(.system(size: 28, weight: .bold))
+                                        .font(.system(size: 19, weight: .bold))
                                         .foregroundStyle(red)
-                                        .frame(width: 62, height: 62)
-                                        .background(Color(red: 0.13, green: 0.015, blue: 0.025), in: RoundedRectangle(cornerRadius: 16))
-                                        .overlay(RoundedRectangle(cornerRadius: 16).stroke(outline, lineWidth: 1))
-                                    VStack(alignment: .leading, spacing: 8) {
+                                        .frame(width: 40, height: 40)
+                                        .background(Color(red: 0.13, green: 0.015, blue: 0.025), in: RoundedRectangle(cornerRadius: 11))
+                                        .overlay(RoundedRectangle(cornerRadius: 11).stroke(outline, lineWidth: 1))
+                                    VStack(alignment: .leading, spacing: 4) {
                                         Text(file.name)
-                                            .font(.system(size: 15, weight: .heavy, design: .rounded))
+                                            .font(.system(size: 12, weight: .semibold, design: .rounded))
                                             .foregroundStyle(.white)
-                                            .lineLimit(2)
+                                            .fixedSize(horizontal: false, vertical: true)
                                             .multilineTextAlignment(.leading)
                                         Text(selectedCategory)
-                                            .font(.system(size: 11, weight: .heavy, design: .rounded))
-                                            .tracking(2)
+                                            .font(.system(size: 9, weight: .heavy, design: .rounded))
+                                            .tracking(1)
                                             .foregroundStyle(red)
                                     }
-                                    Spacer(minLength: 4)
+                                    Spacer(minLength: 0)
                                     Image(systemName: selectedAssetPath == file.id ? "checkmark.circle.fill" : "circle")
-                                        .font(.system(size: 29, weight: .medium))
+                                        .font(.system(size: 23, weight: .medium))
                                         .foregroundStyle(selectedAssetPath == file.id ? red : Color.gray.opacity(0.6))
                                 }
-                                .padding(16)
-                                .frame(maxWidth: .infinity, minHeight: 104)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 9)
+                                .frame(maxWidth: .infinity, minHeight: 64)
                                 .background(Color.black, in: RoundedRectangle(cornerRadius: 24))
                                 .overlay(RoundedRectangle(cornerRadius: 24).stroke(outline.opacity(0.75), lineWidth: 1))
                             }
@@ -390,11 +417,25 @@ private struct RoyalDashboardView: View {
             showActivationMessage = true
             return
         }
-        // Packages discovered on disk must first be imported into the patch library.
-        guard file.id.hasPrefix("project-"),
-              let item = patchStore.items.first(where: { "project-\($0.id)" == file.id }),
+        // Import bundled and document packages through the same validated library
+        // pipeline used by the regular file importer. Never treat an unvalidated
+        // resource as an executable patch.
+        if !file.id.hasPrefix("project-") {
+            let sourceURL = URL(fileURLWithPath: file.id)
+            guard sourceURL.pathExtension.lowercased() == "3105",
+                  FileManager.default.fileExists(atPath: sourceURL.path) else {
+                activationMessage = "Arquivo .3105 não encontrado."
+                showActivationMessage = true
+                return
+            }
+            patchStore.importPackage(at: sourceURL)
+            activationMessage = "Importação iniciada. Após a validação, selecione o patch na biblioteca para aplicá-lo. Arquivos inválidos ou protegidos por senha precisam ser corrigidos ou desbloqueados."
+            showActivationMessage = true
+            return
+        }
+        guard let item = patchStore.items.first(where: { "project-\($0.id)" == file.id }),
               let baseProject = item.project else {
-            activationMessage = "Este arquivo ainda não foi importado como patch válido. Importe-o na biblioteca antes de ativar."
+            activationMessage = "O patch ainda não está disponível na biblioteca."
             showActivationMessage = true
             return
         }
