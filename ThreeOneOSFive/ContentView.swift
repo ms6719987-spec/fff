@@ -70,11 +70,11 @@ struct ContentView: View {
     }
 
     private var compactLayout: some View {
-        RoyalDashboardView(installedContent: AnyView(sectionContent(.installed)))
+        RoyalDashboardView()
     }
 
     private var regularLayout: some View {
-        RoyalDashboardView(installedContent: AnyView(sectionContent(.installed)))
+        RoyalDashboardView()
     }
 
     @ViewBuilder
@@ -204,9 +204,30 @@ private extension AppSection {
 
 // Custom dashboard presentation. Existing Installed functionality remains available.
 private struct RoyalDashboardView: View {
-    let installedContent: AnyView
+    @EnvironmentObject private var patchStore: PatchProjectStore
     @State private var selectedCategory = "FF NORMAL"
     @State private var matchingAssetFiles: [URL] = []
+    private struct ListedFile: Identifiable {
+        let id: String
+        let name: String
+    }
+    private var listedFiles: [ListedFile] {
+        let prefix = selectedCategory == "FF MAX"
+            ? "maassetindexer.YJ~2FW7EkU5pRkVg51NrKyx4LXid8~3D"
+            : "assetindexer.U6Zffc4YIR3DslNj3cXvYGAqz58~3D"
+        let documents = matchingAssetFiles.map { ListedFile(id: $0.path, name: $0.lastPathComponent) }
+        let installed = patchStore.items.flatMap { item -> [ListedFile] in
+            guard let project = item.project, item.canInspectContents else { return [] }
+            return project.rules.enumerated().compactMap { index, rule in
+                let name = rule.replacementFilename
+                guard name.hasPrefix(prefix) else { return nil }
+                return ListedFile(id: "\(item.id)-\(index)", name: name)
+            }
+        }
+        var seen = Set<String>()
+        return (documents + installed).filter { seen.insert($0.id).inserted }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
     @State private var selectedAssetPath: String? = nil
     @State private var showSupport = false
     @State private var showVIPTab = false
@@ -231,12 +252,12 @@ private struct RoyalDashboardView: View {
                     categoryPanel
                     launchPanel
                     Button { showVIPTab = true } label: {
-                        VStack(spacing: 6) {
-                            Image(systemName: "flame.fill").font(.system(size: 32))
-                            Text("HS VIPS").font(.system(size: 15, weight: .bold, design: .rounded))
+                        VStack(spacing: 4) {
+                            Image(systemName: "flame.fill").font(.system(size: 24))
+                            Text("HS VIPS").font(.system(size: 12, weight: .bold, design: .rounded))
                         }
                         .foregroundStyle(red)
-                        .frame(width: 146, height: 92)
+                        .frame(width: 112, height: 68)
                         .background(Color.white.opacity(0.14), in: Capsule())
                         .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 3))
                     }
@@ -267,11 +288,10 @@ private struct RoyalDashboardView: View {
 
             heading("flame.fill", "HS VIPS")
 
-            installedContent
-                .frame(maxWidth: .infinity, minHeight: 480)
-                .background(Color.black, in: RoundedRectangle(cornerRadius: 20))
-                .clipShape(RoundedRectangle(cornerRadius: 20))
-                .tint(red)
+            Text("Arquivos disponíveis nas categorias FF NORMAL e FF MAX aparecem na lista da tela principal.")
+                .foregroundStyle(.gray)
+                .font(.system(size: 14))
+                .padding(.vertical, 22)
         }
         .padding(16)
         .background(panel, in: RoundedRectangle(cornerRadius: 28))
@@ -330,16 +350,16 @@ private struct RoyalDashboardView: View {
                 }
             }
             if selectedCategory == "FF NORMAL" || selectedCategory == "FF MAX" {
-                if matchingAssetFiles.isEmpty {
+                if listedFiles.isEmpty {
                     Text("Nenhum arquivo \(selectedCategory == "FF MAX" ? "maassetindexer.YJ~2FW7EkU5pRkVg51NrKyx4LXid8~3D" : "assetindexer.U6Zffc4YIR3DslNj3cXvYGAqz58~3D") encontrado.")
                         .foregroundStyle(.gray).font(.system(size: 13))
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity).padding(.vertical, 36)
                 } else {
                     LazyVStack(spacing: 14) {
-                        ForEach(matchingAssetFiles, id: \.path) { file in
+                        ForEach(listedFiles) { file in
                             Button {
-                                selectedAssetPath = selectedAssetPath == file.path ? nil : file.path
+                                selectedAssetPath = selectedAssetPath == file.id ? nil : file.id
                             } label: {
                                 HStack(spacing: 14) {
                                     Image(systemName: "flame.fill")
@@ -349,7 +369,7 @@ private struct RoyalDashboardView: View {
                                         .background(Color(red: 0.13, green: 0.015, blue: 0.025), in: RoundedRectangle(cornerRadius: 16))
                                         .overlay(RoundedRectangle(cornerRadius: 16).stroke(outline, lineWidth: 1))
                                     VStack(alignment: .leading, spacing: 8) {
-                                        Text(file.lastPathComponent)
+                                        Text(file.name)
                                             .font(.system(size: 15, weight: .heavy, design: .rounded))
                                             .foregroundStyle(.white)
                                             .lineLimit(2)
@@ -360,9 +380,9 @@ private struct RoyalDashboardView: View {
                                             .foregroundStyle(red)
                                     }
                                     Spacer(minLength: 4)
-                                    Image(systemName: selectedAssetPath == file.path ? "checkmark.circle.fill" : "circle")
+                                    Image(systemName: selectedAssetPath == file.id ? "checkmark.circle.fill" : "circle")
                                         .font(.system(size: 29, weight: .medium))
-                                        .foregroundStyle(selectedAssetPath == file.path ? red : Color.gray.opacity(0.6))
+                                        .foregroundStyle(selectedAssetPath == file.id ? red : Color.gray.opacity(0.6))
                                 }
                                 .padding(16)
                                 .frame(maxWidth: .infinity, minHeight: 104)
@@ -410,9 +430,7 @@ private struct RoyalDashboardView: View {
             if found.count >= 200 { break }
         }
         matchingAssetFiles = found.sorted { $0.lastPathComponent < $1.lastPathComponent }
-        if let selectedAssetPath = selectedAssetPath, !matchingAssetFiles.contains(where: { $0.path == selectedAssetPath }) {
-            self.selectedAssetPath = nil
-        }
+
     }
 
     private var launchPanel: some View {
