@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 workflows:
   ios-unsigned-ipa:
     name: Build 3105 unsigned IPA
@@ -36,6 +35,3 @@ workflows:
     artifacts:
       - 3105-unsigned.ipa
       - "**/build/*.log"
-=======
-
->>>>>>> c4b9294e96ca362682490161d099e3679f22dc68
