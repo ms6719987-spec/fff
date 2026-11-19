@@ -220,7 +220,7 @@ private struct RoyalDashboardView: View {
             guard let project = item.project, item.canInspectContents else { return [] }
             return project.rules.enumerated().compactMap { index, rule in
                 let name = rule.replacementFilename
-                guard name.hasPrefix(prefix) else { return nil }
+                guard rule.relativePath.split(separator: "/").dropLast().contains(where: { $0.hasPrefix(prefix) }) else { return nil }
                 return ListedFile(id: "\(item.id)-\(index)", name: name)
             }
         }
@@ -230,7 +230,6 @@ private struct RoyalDashboardView: View {
     }
     @State private var selectedAssetPath: String? = nil
     @State private var showSupport = false
-    @State private var showVIPTab = false
     private let red = Color(red: 1, green: 0.23, blue: 0.27)
     private let panel = Color(red: 0.065, green: 0.005, blue: 0.012)
     private let outline = Color(red: 0.33, green: 0.075, blue: 0.095)
@@ -245,24 +244,9 @@ private struct RoyalDashboardView: View {
             Color(red: 0.035, green: 0, blue: 0.007).ignoresSafeArea()
             ScrollView {
                 VStack(spacing: 22) {
-                    if showVIPTab {
-                        vipTab
-                    } else {
                     statusPanel
                     categoryPanel
                     launchPanel
-                    Button { showVIPTab = true } label: {
-                        VStack(spacing: 4) {
-                            Image(systemName: "flame.fill").font(.system(size: 24))
-                            Text("HS VIPS").font(.system(size: 12, weight: .bold, design: .rounded))
-                        }
-                        .foregroundStyle(red)
-                        .frame(width: 112, height: 68)
-                        .background(Color.white.opacity(0.14), in: Capsule())
-                        .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 3))
-                    }
-                    .padding(.bottom, 30)
-                    }
                 }
                 .padding(.horizontal, 18)
                 .padding(.top, 20)
@@ -274,28 +258,6 @@ private struct RoyalDashboardView: View {
         } message: {
             Text("As informações de suporte não estão configuradas neste projeto.")
         }
-    }
-
-    // HS VIPS replaces the former Installed screen while retaining its tools and data.
-    private var vipTab: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Button { showVIPTab = false } label: {
-                Label("Voltar", systemImage: "chevron.left")
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
-                    .foregroundStyle(red)
-            }
-            .buttonStyle(.plain)
-
-            heading("flame.fill", "HS VIPS")
-
-            Text("Arquivos disponíveis nas categorias FF NORMAL e FF MAX aparecem na lista da tela principal.")
-                .foregroundStyle(.gray)
-                .font(.system(size: 14))
-                .padding(.vertical, 22)
-        }
-        .padding(16)
-        .background(panel, in: RoundedRectangle(cornerRadius: 28))
-        .overlay(RoundedRectangle(cornerRadius: 28).stroke(outline, lineWidth: 1.2))
     }
 
     private var statusPanel: some View {
@@ -351,7 +313,7 @@ private struct RoyalDashboardView: View {
             }
             if selectedCategory == "FF NORMAL" || selectedCategory == "FF MAX" {
                 if listedFiles.isEmpty {
-                    Text("Nenhum arquivo \(selectedCategory == "FF MAX" ? "maassetindexer.YJ~2FW7EkU5pRkVg51NrKyx4LXid8~3D" : "assetindexer.U6Zffc4YIR3DslNj3cXvYGAqz58~3D") encontrado.")
+                    Text("Nenhum arquivo encontrado no diretório \(selectedCategory == "FF MAX" ? "maassetindexer.YJ~2FW7EkU5pRkVg51NrKyx4LXid8~3D" : "assetindexer.U6Zffc4YIR3DslNj3cXvYGAqz58~3D").")
                         .foregroundStyle(.gray).font(.system(size: 13))
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity).padding(.vertical, 36)
@@ -398,11 +360,7 @@ private struct RoyalDashboardView: View {
                     .foregroundStyle(.gray).font(.system(size: 15))
                     .frame(maxWidth: .infinity).padding(.vertical, 36)
             }
-            Button { showVIPTab = true } label: {
-                Label("Abrir HS VIPS", systemImage: "arrow.clockwise")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(red).frame(maxWidth: .infinity)
-            }
+
         }
         .padding(20)
         .background(panel, in: RoundedRectangle(cornerRadius: 28))
@@ -410,7 +368,7 @@ private struct RoyalDashboardView: View {
         .onAppear { refreshAssetFiles() }
     }
 
-    // Only files within this app's accessible Documents folder can be listed.
+    // Match parent directory components, never the filename. Limited to app-accessible Documents.
     private func refreshAssetFiles() {
         let prefix = selectedCategory == "FF MAX"
             ? "maassetindexer.YJ~2FW7EkU5pRkVg51NrKyx4LXid8~3D"
@@ -424,7 +382,7 @@ private struct RoyalDashboardView: View {
         }
         var found: [URL] = []
         for case let url as URL in enumerator {
-            guard url.lastPathComponent.hasPrefix(prefix),
+            guard url.deletingLastPathComponent().pathComponents.contains(where: { $0.hasPrefix(prefix) }),
                   (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { continue }
             found.append(url)
             if found.count >= 200 { break }
@@ -447,7 +405,7 @@ private struct RoyalDashboardView: View {
     }
 
     private func launchButton(_ title: String) -> some View {
-        Button { showVIPTab = true } label: {
+        Button { selectedCategory = title; selectedAssetPath = nil; refreshAssetFiles() } label: {
             Label(title, systemImage: "play.fill")
                 .font(.system(size: 14, weight: .heavy, design: .rounded))
                 .foregroundStyle(.white).frame(maxWidth: .infinity).frame(height: 76)
