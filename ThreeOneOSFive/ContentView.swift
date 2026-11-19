@@ -212,17 +212,20 @@ private struct RoyalDashboardView: View {
         let name: String
     }
     private var listedFiles: [ListedFile] {
-        let prefix = selectedCategory == "FF MAX"
-            ? "maassetindexer.YJ~2FW7EkU5pRkVg51NrKyx4LXid8~3D"
-            : "assetindexer.U6Zffc4YIR3DslNj3cXvYGAqz58~3D"
+        let assetId = selectedCategory == "FF MAX"
+            ? "YJ~2FW7EkU5pRkVg51NrKyx4LXid8~3D"
+            : "U6Zffc4YIR3DslNj3cXvYGAqz58~3D"
         // Show .3105 packages, not arbitrary asset files. Classify installed
         // projects by their declared target directory rather than package name.
-        let documents = matchingAssetFiles.map { ListedFile(id: $0.path, name: $0.deletingPathExtension().lastPathComponent) }
+        let documents = (selectedCategory == "HS VIPS" ? [] : matchingAssetFiles).map { ListedFile(id: $0.path, name: $0.deletingPathExtension().lastPathComponent) }
         let installed = patchStore.items.compactMap { item -> ListedFile? in
             guard let project = item.project, item.canInspectContents else { return nil }
             let paths = project.rules.map(\.relativePath) + project.directories.map(\.relativePath)
-            guard paths.contains(where: { path in
-                path.split(separator: "/").contains(where: { $0.hasPrefix(prefix) })
+            guard selectedCategory == "HS VIPS" || paths.contains(where: { path in
+                path.split(separator: "/").contains(where: { component in
+                    let name = String(component).lowercased()
+                    return name == "assetindexer.\(assetId.lowercased())"
+                })
             }) else { return nil }
             return ListedFile(id: "project-\(item.id)", name: project.name)
         }
@@ -231,6 +234,9 @@ private struct RoyalDashboardView: View {
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
     @State private var selectedAssetPath: String? = nil
+    @State private var activationBusy = false
+    @State private var activationMessage: String? = nil
+    @State private var showActivationMessage = false
     @State private var showSupport = false
     private let red = Color(red: 1, green: 0.23, blue: 0.27)
     private let panel = Color(red: 0.065, green: 0.005, blue: 0.012)
@@ -238,7 +244,8 @@ private struct RoyalDashboardView: View {
     private let categories: [(String, String)] = [
         ("FF NORMAL", "flame.fill"), ("FF MAX", "flame"),
         ("AP", "shield.lefthalf.filled"), ("SKINS / TEXTURAS", "square.grid.2x2.fill"),
-        ("HOLOGRAMAS", "wand.and.stars"), ("OUTROS", "shippingbox.fill")
+        ("HOLOGRAMAS", "wand.and.stars"), ("OUTROS", "shippingbox.fill"),
+        ("HS VIPS", "star.fill")
     ]
 
     var body: some View {
@@ -255,6 +262,11 @@ private struct RoyalDashboardView: View {
             }
         }
         .preferredColorScheme(.dark)
+        .alert("Ativação do arquivo", isPresented: $showActivationMessage) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(activationMessage ?? "Não foi possível concluir a operação.")
+        }
         .alert("Suporte", isPresented: $showSupport) {
             Button("OK", role: .cancel) { }
         } message: {
@@ -313,9 +325,9 @@ private struct RoyalDashboardView: View {
                     }.buttonStyle(.plain)
                 }
             }
-            if selectedCategory == "FF NORMAL" || selectedCategory == "FF MAX" {
+            if selectedCategory == "FF NORMAL" || selectedCategory == "FF MAX" || selectedCategory == "HS VIPS" {
                 if listedFiles.isEmpty {
-                    Text("Nenhum pacote .3105 encontrado para \(selectedCategory). Importe um patch .3105 com um caminho de destino compatível ou adicione-o à pasta correspondente no app Arquivos.")
+                    Text(selectedCategory == "HS VIPS" ? "Nenhum pacote instalado encontrado." : "Nenhum pacote .3105 encontrado para \(selectedCategory). Importe um patch .3105 com um caminho de destino compatível ou adicione-o à pasta correspondente no app Arquivos.")
                         .foregroundStyle(.gray).font(.system(size: 13))
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity).padding(.vertical, 36)
@@ -323,7 +335,7 @@ private struct RoyalDashboardView: View {
                     LazyVStack(spacing: 14) {
                         ForEach(listedFiles) { file in
                             Button {
-                                selectedAssetPath = selectedAssetPath == file.id ? nil : file.id
+                                activateListedFile(file)
                             } label: {
                                 HStack(spacing: 14) {
                                     Image(systemName: "flame.fill")
@@ -354,6 +366,7 @@ private struct RoyalDashboardView: View {
                                 .overlay(RoundedRectangle(cornerRadius: 24).stroke(outline.opacity(0.75), lineWidth: 1))
                             }
                             .buttonStyle(.plain)
+                            .disabled(activationBusy)
                         }
                     }
                 }
@@ -370,11 +383,50 @@ private struct RoyalDashboardView: View {
         .onAppear { refreshAssetFiles() }
     }
 
+    private func activateListedFile(_ file: ListedFile) {
+        guard !activationBusy else { return }
+        if selectedAssetPath == file.id {
+            activationMessage = "O arquivo já foi aplicado. Para restaurar o estado anterior, use a opção de restauração do patch."
+            showActivationMessage = true
+            return
+        }
+        // Packages discovered on disk must first be imported into the patch library.
+        guard file.id.hasPrefix("project-"),
+              let item = patchStore.items.first(where: { "project-\($0.id)" == file.id }),
+              let baseProject = item.project else {
+            activationMessage = "Este arquivo ainda não foi importado como patch válido. Importe-o na biblioteca antes de ativar."
+            showActivationMessage = true
+            return
+        }
+        activationBusy = true
+        Task.detached(priority: .userInitiated) {
+            do {
+                let project = item.summary.schemaVersion >= 2 && item.canInspectContents
+                    ? try PatchProjectLibrary.synchronizeWorkspace(item: item)
+                    : baseProject
+                _ = try DevicePatchService.apply(project: project)
+                await MainActor.run {
+                    selectedAssetPath = file.id
+                    activationBusy = false
+                    patchStore.reload()
+                    activationMessage = "Patch aplicado com sucesso."
+                    showActivationMessage = true
+                }
+            } catch {
+                await MainActor.run {
+                    activationBusy = false
+                    activationMessage = "Não foi possível aplicar o patch: \(error.localizedDescription)"
+                    showActivationMessage = true
+                }
+            }
+        }
+    }
+
     // Match parent directory components, never the filename. Limited to app-accessible Documents.
     private func refreshAssetFiles() {
-        let prefix = selectedCategory == "FF MAX"
-            ? "maassetindexer.YJ~2FW7EkU5pRkVg51NrKyx4LXid8~3D"
-            : "assetindexer.U6Zffc4YIR3DslNj3cXvYGAqz58~3D"
+        let assetId = selectedCategory == "FF MAX"
+            ? "YJ~2FW7EkU5pRkVg51NrKyx4LXid8~3D"
+            : "U6Zffc4YIR3DslNj3cXvYGAqz58~3D"
         guard let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first,
               let enumerator = FileManager.default.enumerator(at: documents,
                   includingPropertiesForKeys: [.isRegularFileKey],
@@ -385,12 +437,26 @@ private struct RoyalDashboardView: View {
         var found: [URL] = []
         for case let url as URL in enumerator {
             guard url.pathExtension.lowercased() == "3105",
-                  url.deletingLastPathComponent().pathComponents.contains(where: { $0.hasPrefix(prefix) }),
+                  url.deletingLastPathComponent().pathComponents.contains(where: { component in
+                      let name = component.lowercased()
+                      return name == "assetindexer.\(assetId.lowercased())"
+                  }),
                   (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { continue }
             found.append(url)
             if found.count >= 200 { break }
         }
-        matchingAssetFiles = found.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        // Files included in the IPA are read-only bundle resources.
+        // They are listed in addition to imported files in Documents.
+        let bundledFolder = selectedCategory == "FF MAX" ? "FF_MAX" : "FF_NORMAL"
+        if let root = Bundle.main.resourceURL?
+            .appendingPathComponent("BundledPatches", isDirectory: true)
+            .appendingPathComponent(bundledFolder, isDirectory: true),
+           let bundled = try? FileManager.default.contentsOfDirectory(
+                at: root, includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles]) {
+            found.append(contentsOf: bundled.filter { $0.pathExtension.lowercased() == "3105" })
+        }
+        matchingAssetFiles = Array(Set(found)).sorted { $0.lastPathComponent < $1.lastPathComponent }
 
     }
 
